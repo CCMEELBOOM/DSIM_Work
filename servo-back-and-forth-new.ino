@@ -1,5 +1,17 @@
 #include <Servo.h>
 #include <math.h>
+
+/* 
+This script allows the sensors to move back and forth within an accepted range, preferable 180,
+which prevents bending damage to the cables (see homing and oscillation functions).
+This movement is also paired with a data collection function that collects angle 
+position data (see angle output function) and can be employed by R0S2.
+*/ 
+
+
+
+
+
 // ----------------------------------------------------
 //-----------------------------------------------------
 //-----------------------------------------------------
@@ -28,8 +40,14 @@ float ZERO_POINT_PORT      = 145.0f;
 const int STOP_PWM = 1500; 
 
 //------------------CW & CCW Nudges --------------
-const int HOME_CW_PWM  = 1530;
-const int HOME_CCW_PWM = 1470;
+const int HOME_CW_PWM  = 1550;
+const int HOME_CCW_PWM = 1450; 
+// The PWM value should be greater than 1520 and lower than 1470 to be able to rotate. 
+// However, the servo has to overcome static friction to be able to rotate, thus the push
+// initiated by writeMicroseconds() should be greater than 1520 and lower than 1470.
+// As tested, 1530 and 1470 were not enought to overcome the static friction. 
+// Increase the value of CW_PWM ever so slightly and decrease CCW_PWM if the sensors don't move.
+// 
 //CW movement is positive and occurs at PWM> 1500 
 //This is based on Parallax docs
 
@@ -48,7 +66,7 @@ Servo PORT_SERVO;
 
 // ---------------- Servo Arrays-------------------
 float ZERO_POINTS[] = {ZERO_POINT_TOP,ZERO_POINT_STARBOARD, ZERO_POINT_PORT};
-Servo SERVO_ARRAY[] = {TOP_SERVO, STARBOARD_SERVO, PORT_SERVO};
+Servo* SERVO_ARRAY[] = {&TOP_SERVO, &STARBOARD_SERVO,&PORT_SERVO};
 int SERVO_PIN_ARRAY[] = {TOP_SERVO_PIN,STARBOARD_SERVO_PIN, PORT_SERVO_PIN};
 int SERVO_FEEDBACK_PIN_ARRAY[] = {TOP_FEEDBACK_PIN, STARBOARD_FEEDBACK_PIN, PORT_FEEDBACK_PIN};
 // ---------------- Tolerance Deg-------------------
@@ -69,6 +87,31 @@ unsigned long last_ros_time = 0;
 //-----------------------------------------------------
 //-----------------------------------------------------
 
+
+/*
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@ RPM to PWM Conversion Function @@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+The goal of this function is to facilitate the speed parametric input
+of the servo.
+*/
+int pwm_conv(int RPM_SPEED){
+  if (RPM_SPEED > 0){
+    int PWM_SPEED = 1/0.735 * (RPM_SPEED)+1520; // 1/0.735 is the ratio between PWM and RPM
+    // 1520 is the lowerbound PWM of the servo for CW rotation 
+  }
+  else if (RPM_SPEED > 147){
+    PWM_SPEED = 0;
+  }
+
+
+  else{
+  PWM_SPEED = 0;
+  }
+return (PWM_SPEED);
+}
+
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 // @@@@@@@@@@@@@@@ Get Raw Angle Function @@@@@@@@@@@@@
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -78,16 +121,25 @@ unsigned long last_ros_time = 0;
 float get_raw_angle(int feedbackPin, unsigned long pulseTimeout){
       
     int current_feedback_pin = feedbackPin;
-    float time_high = pulseIn(current_feedback_pin, HIGH, pulseTimeout);
-    float time_low = pulseIn(current_feedback_pin, LOW, pulseTimeout);
+    float time_high = pulseIn(current_feedback_pin, HIGH, pulseTimeout); 
+    /*
+    built-in function that allows the arduino to track how long the PWM signal
+    remains in high, in microseconds.
+    */
+    //float time_low = pulseIn(current_feedback_pin, LOW, pulseTimeout);
 
-    if (time_high == 0 || time_low == 0) {
+    if (time_high == 0){ //|| time_low == 0) {
       return NAN;
       }
-    
-    float cycle_time = (float)(time_low + time_high);
-    float duty_cycle = (100.0f * time_high) / cycle_time;
+    // this signifies the system is not active and the servo is not receiving any PWM signal.
+    //float cycle_time = (float)(time_low + time_high);
+    float cycle_time = 1100.0f; // given by parallax 360 Doc.
+    float duty_cycle = (100.0f * time_high) / cycle_time; // multiply by 100 to get proper unit for ratio 
     float raw_angle = ((duty_cycle - 2.9f) * 360.0f) / (97.1f - 2.9f + 1.0f);
+    /* 2.9 is the Duty Cycle min (%) the servo can sustain.
+    97.1 is the Duty Cycle max (%) the servo can sustain.
+    */
+    // 
     
     return raw_angle;
 }
@@ -99,34 +151,37 @@ float get_raw_angle(int feedbackPin, unsigned long pulseTimeout){
 // ~ Goes in void setup()
 // ~ Each of the feedback_pins must be run through this function in void setup.
 
-bool move_to_start_one(Servo &s, int feedback_pin, float zero_point, float tolerance_deg, unsigned long pulse_timeout) {
-  unsigned long start_ms = millis();
+bool move_to_start_one(Servo *s, int feedback_pin, float zero_point, float tolerance_deg, unsigned long pulse_timeout) {
+  unsigned long start_ms = millis(); // beginning of time stamp
 
   while (true) {
     float raw_angle = get_raw_angle(feedback_pin, pulse_timeout);
 
     // If feedback missing, stop to be safe
     if (isnan(raw_angle)) {
-      s.writeMicroseconds(STOP_PWM);
+      s->writeMicroseconds(STOP_PWM);
             // keep trying until timeout; this also helps catch intermittent feedback wiring
-    } 
-    else {
+    } else {
       // Are we at home?
       if (fabs(raw_angle - zero_point) <= tolerance_deg) {
-        s.writeMicroseconds(STOP_PWM);
+        s->writeMicroseconds(STOP_PWM);
         return true;
       }
 
       // Same "closest direction" logic you used
       if ((raw_angle > zero_point) && (raw_angle <= zero_point + 180.0f)) {
-        s.writeMicroseconds(HOME_CW_PWM); // CW toward zero
+        s->writeMicroseconds(HOME_CW_PWM); 
+        // nudges the sensor slightly toward the zeropoint CW
       } else {
-        s.writeMicroseconds(HOME_CCW_PWM);  // CW toward zero
+        s->writeMicroseconds(HOME_CCW_PWM);  
+        // nudges the sensor slightly toward the zeropoint CCW
       }
     }
 
     if (millis() - start_ms > HOMING_TIMEOUT) {
-      s.writeMicroseconds(STOP_PWM);
+      s->writeMicroseconds(STOP_PWM);
+      /* Stops the the homing function if too much time has elapsed.
+      */
       return false;
     }
 
@@ -137,44 +192,62 @@ bool move_to_start_one(Servo &s, int feedback_pin, float zero_point, float toler
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 // @@@@@@@@@@@  Angle Oscillation Function @@@@@@@@@@@@
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-// ~ change PWM_SPEED as you wish... 
-int PWM_SPEED = 50;
+// ~ change RPM_SPEED as you wish...
+/* function that generates the oscillation of the sensors. The range of the sensors should be 180, with limits 
+-90 and 90 degree from the zero point(original direction).
+The zero point is the horizontal direction facing the front of the sub. 
+This ensures cable maintenance. 
+*/ 
+
+int RPM_SPEED = 50; // For servo to rotate, RPM_SPEED > 0, Max RPM_SPEED = ~147 rpm
+int PWM_SPEED = pwm_conv(int RPM_SPEED);
 // ~ PWM Speed is x where PWM is 1500 +- x. Just the difference between the STOP_PWM and any increment.
 
-void oscillation(int i, Servo &s, int feedback_pin, int pwm_speed, float zero_point, float tolerance_deg, unsigned long pulse_timeout){
+void oscillation(int i, Servo *s, int feedback_pin, int PWM_SPEED, float zero_point, float tolerance_deg, unsigned long pulse_timeout){
 
   float angle = get_raw_angle(feedback_pin, pulse_timeout);
+  
+  //float upper_limit = zero_point + 87.0f;
+  //float lower_limit = zero_point - 87.0f; 
+  float diff = angle - zero_point ;
 
   if (isnan(angle)) return;
 
-  if ((angle-90.0f >= zero_point) && (angle > zero_point)){
+  //if ((angle-90.0f >= zero_point) && (angle > zero_point)){
+  //if ((angle >= upper_limit)){
+
+  if (diff >= 85.0) {
     directions[i] = 1; //CW
   }
-  else if ((angle + 90.0f <= zero_point) && (angle < zero_point)){
+  //else if ((angle + 90.0f <= zero_point) && (angle < zero_point)){
+  //else if ((angle <= lower_limit)){
+  if (diff <= -85.0) {
     directions[i] = -1; //CCW
   } 
-  s.writeMicroseconds(STOP_PWM + (directions[i] * pwm_speed));
+  s->writeMicroseconds(STOP_PWM + (directions[i] * PWM_SPEED));
 }
 
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 // @@@@@@@@@@@@@  Angle Output Function @@@@@@@@@@@@@@@
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-// ~ Change ROS_INTERVAL based on how high you want output angle defention 
+// ~ Change ROS_INTERVAL based on how high you want output angle 
 
 const int ROS_INTERVAL = 20;//(20 is 50Hz collection rate)
 
 float shifted_angle(int feedback_pin, float zero_point, unsigned long pulse_timeout){
 
-  float raw_angle = get_raw_angle(feedback_pin, pulse_timeout);
+  float raw_angle = get_raw_angle(feedback_pin, pulse_timeout); // acquiring data from the sensors
 
-  if (isnan(raw_angle)) return -999.0f;
+  if (isnan(raw_angle)) return -999.0f; // if no data is found, displays -999.0
 
-  float corrected_angle = raw_angle - zero_point;
+  float corrected_angle = raw_angle - zero_point; 
+  // actual angle of the sensor, with reference
+  // from sensor when facing toward the front of the sub
 
   while (corrected_angle > 180.0f) corrected_angle -= 360.0f;
   while (corrected_angle <= -180.0f) corrected_angle += 360.0f;
-
+  
   return corrected_angle;
 }
 // ----------------------------------------------------
@@ -190,8 +263,8 @@ void setup() {
   // Initialize Hardware
   for (int i = 0; i < NUM_SERVOS; i++) {
     pinMode(SERVO_FEEDBACK_PIN_ARRAY[i], INPUT); 
-    SERVO_ARRAY[i].attach(SERVO_PIN_ARRAY[i]);
-    SERVO_ARRAY[i].writeMicroseconds(STOP_PWM);
+    SERVO_ARRAY[i]->attach(SERVO_PIN_ARRAY[i]);
+    SERVO_ARRAY[i]->writeMicroseconds(STOP_PWM);
   }
 
   // Run Homing Function
@@ -233,7 +306,7 @@ void loop() {
       SERVO_FEEDBACK_PIN_ARRAY[i],
       PWM_SPEED, 
       ZERO_POINTS[i], 
-      TOLERANE_DEG,
+      TOLERANCE_DEG,
       PULSE_TIMEOUT_US
     ); 
   }
