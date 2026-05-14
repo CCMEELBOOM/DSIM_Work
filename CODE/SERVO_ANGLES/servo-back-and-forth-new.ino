@@ -7,6 +7,8 @@ which prevents bending damage to the cables (see homing and oscillation function
 This movement is also paired with a data collection function that collects angle 
 position data (see angle output function) and can be employed by R0S2.
 */ 
+// Documentation of the Parallax Feedback 360° High-Speed Servo:
+//https://www.pololu.com/file/0J1395/900-00360-Feedback-360-HS-Servo-v1.2.pdf
 
 
 
@@ -96,20 +98,22 @@ unsigned long last_ros_time = 0;
 The goal of this function is to facilitate the speed parametric input
 of the servo.
 */
-int pwm_conv(int RPM_SPEED){
-  if (RPM_SPEED > 0){
-    int PWM_SPEED = 1/0.735 * (RPM_SPEED)+1520; // 1/0.735 is the ratio between PWM and RPM
+
+int pwm_conv( int RPM_SPEED ){
+  int pwm_speed;
+  if (RPM_SPEED > 147){
+    pwm_speed = STOP_PWM;
+  }
+// Don't want to have a value larger than the maximum rpm the servo can handle.
+  
+  else if (RPM_SPEED > 0){
+    pwm_speed = 1/0.735 * (RPM_SPEED)+1520; // 1/0.735 is the ratio between PWM and RPM
     // 1520 is the lowerbound PWM of the servo for CW rotation 
   }
-  else if (RPM_SPEED > 147){
-    PWM_SPEED = 0;
-  }
-
-
   else{
-  PWM_SPEED = 0;
+    pwm_speed = STOP_PWM;
   }
-return (PWM_SPEED);
+return (pwm_speed);
 }
 
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -200,7 +204,7 @@ This ensures cable maintenance.
 */ 
 
 int RPM_SPEED = 50; // For servo to rotate, RPM_SPEED > 0, Max RPM_SPEED = ~147 rpm
-int PWM_SPEED = pwm_conv(int RPM_SPEED);
+int PWM_SPEED = pwm_conv(RPM_SPEED);
 // ~ PWM Speed is x where PWM is 1500 +- x. Just the difference between the STOP_PWM and any increment.
 
 void oscillation(int i, Servo *s, int feedback_pin, int PWM_SPEED, float zero_point, float tolerance_deg, unsigned long pulse_timeout){
@@ -212,7 +216,7 @@ void oscillation(int i, Servo *s, int feedback_pin, int PWM_SPEED, float zero_po
   float diff = angle - zero_point ;
 
   if (isnan(angle)) return;
-
+ 
   //if ((angle-90.0f >= zero_point) && (angle > zero_point)){
   //if ((angle >= upper_limit)){
 
@@ -224,7 +228,15 @@ void oscillation(int i, Servo *s, int feedback_pin, int PWM_SPEED, float zero_po
   if (diff <= -85.0) {
     directions[i] = -1; //CCW
   } 
-  s->writeMicroseconds(STOP_PWM + (directions[i] * PWM_SPEED));
+  if (diff >= 93.0 || diff <= -93.0){
+    direction[i]=0 ;
+  }
+  s->writeMicroseconds(STOP_PWM + (directions[i] * (PWM_SPEED - STOP_PWM)));
+
+
+  // function that will kill oscillation of the sensors if they go over their set range. 
+  // For each void loop iteration the servo should be able to move if the conditions are met.
+  
 }
 
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -237,7 +249,7 @@ const int ROS_INTERVAL = 20;//(20 is 50Hz collection rate)
 
 float shifted_angle(int feedback_pin, float zero_point, unsigned long pulse_timeout){
 
-  float raw_angle = get_raw_angle(feedback_pin, pulse_timeout); // acquiring data from the sensors
+  float raw_angle = get_raw_angle(feedback_pin, pulse_timeout); // acquiring data from the servos
 
   if (isnan(raw_angle)) return -999.0f; // if no data is found, displays -999.0
 
@@ -250,6 +262,10 @@ float shifted_angle(int feedback_pin, float zero_point, unsigned long pulse_time
   
   return corrected_angle;
 }
+
+
+
+
 // ----------------------------------------------------
 //-----------------------------------------------------
 //-----------------------------------------------------
