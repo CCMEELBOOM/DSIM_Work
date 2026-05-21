@@ -11,15 +11,11 @@ Contains housing desing for side hydrophones. Housing was printed in PETG. <br>
 
 This folder contains code for two nodes that publish cost data to the ESC algorithm. <br>
 
-<u><strong>CODE Folder</strong></u> <br>
-
-This folder contains code for two nodes that publish cost data to the ESC algorithm. <br>
-
 <u><strong>CAD Folder</strong></u> <br>
 
 This folder contains the CAD for the side mounts that were used to mount the side servos and hydrophpnes. <br>
 
-<u><strong>Documentation</strong></u> <br>
+<u><strong>Documentation Folder</strong></u> <br>
 
 This folder contains the documentation and essays that were written throughout the project. <br>
 
