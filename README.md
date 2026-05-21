@@ -11,16 +11,15 @@ Contains housing desing for side hydrophones. Housing was printed in PETG. <br>
 
 This folder contains code for two nodes that publish cost data to the ESC algorithm. <br>
 
-**Node 1**  <br>
+<u><strong>CODE Folder</strong></u> <br>
 
-The first node take angle data from the feedback wire of a Parallax 360 servo and publishes it to /servo_angles topic. <br>
+This folder contains code for two nodes that publish cost data to the ESC algorithm. <br>
 
-The .ino is run locally on the Arduino which is mounted on the BlueROV2. This sketch is uploded before anything else. <br>
+<u><strong>CAD Folder</strong></u> <br>
 
-Then the talk-to-pc.py file is run on the Rasberry Pi mounted on the BlueRov2 to relay angle data to  the PC. <br>
+This folder contains the CAD for the side mounts that were used to mount the side servos and hydrophpnes. <br>
 
-**Node 2** <br>
+<u><strong>Documentation</strong></u> <br>
 
-This node take voltage values from the hydrophones, converts these values to pressure and then converts pressure values to decibels. <br>
+This folder contains the documentation and essays that were written throughout the project. <br>
 
-The data processeing occurs locally on the Rasberry Pi and the process data is relayed to ROS 2 running locally on the PC. 
