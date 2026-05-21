@@ -1,3 +1,13 @@
+
+
+"""This script connects to two MCC 172 boards on a DAC hat and sends data to a PC socket.
+
+We receive voltage data from three TC4013 hydrophones (one on the first board, two on 
+the second board). Everey sample is first converted from voltage to pressure using the 
+hydrophone sensitivity of 0.56234 mV/Pa. Next, the RMS value of every 50 samples is taken 
+to reduce noise. When concerting to dB, the data is nondimensionalized with the reference 
+pressure of 1 uPa for underwater acoustics, then converted to dB re 1 uPa.
+"""
 #Hyrdopphone TC4013
 # Conversion for hydropphone sensitivity : -211 dB re 1V/µPa  
 # Calculator: 
@@ -14,7 +24,7 @@ from matplotlib.pyplot import specgram
 from daqhats import hat_list, HatIDs, OptionFlags, HatError
 from daqhats.mcc172 import mcc172
 
-# Configuration constants 
+#Configuration constants
 
 PC_IP = "192.168.2.157"
 PC_PORT = 5001
@@ -25,7 +35,7 @@ SAMPLES_PER_READ = 50
 SOCKET_RETRY_DELAY = 2
 SCAN_READ_TIMEOUT = 1.0
 
-# Runs loop until something sets running to false
+# Runs loop until there is an interuption 
 running = True
 
 
@@ -37,7 +47,8 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-# connects to socket while running 
+# This function connects to socket while running=true and will 
+# retry every SOCKET_RETRY_DELAY seconds if connection fails.
 
 def connect_socket():
     while running:
@@ -51,6 +62,8 @@ def connect_socket():
             time.sleep(SOCKET_RETRY_DELAY)
     return None
 
+# This function creates a bitmask for the specified channels, 
+# which is used to configure the MCC 172 for scanning.
 
 def create_channel_mask(channels):
     mask = 0
@@ -58,6 +71,7 @@ def create_channel_mask(channels):
         mask |= (1 << ch)
     return mask
 
+# This function connects to the MCC 172 board at the specified address,
 
 def connect_mcc172_by_address(address):
     boards = hat_list(HatIDs.MCC_172)
@@ -68,7 +82,7 @@ def connect_mcc172_by_address(address):
             return hat
     raise RuntimeError(f"No MCC 172 found at address {address}")
 
-
+#This function configures the MCC 172 for scanning on the specified channels with IEPE enabled.
 def configure_hat(hat, channels, iepe_enabled=True):
     hat.a_in_clock_config_write(0, SAMPLE_RATE)
 
@@ -82,7 +96,8 @@ def configure_hat(hat, channels, iepe_enabled=True):
 
     print(f"Started scan on channels {channels} at {SAMPLE_RATE} S/s")
 
-
+#This function stops the scan and cleans up the MCC 172, 
+# and also turns off IEPE on the specified channels.
 def stop_hat(hat, channels):
     try:
         hat.a_in_scan_stop()
@@ -105,6 +120,7 @@ def read_samples(hat, samples_per_read):
     return result.data
 
 sensitivity_mV_per_Pa = 0.56234  # TC4013 sensitivity with IEPE preamp gain
+
 
 def main():
     sock = None
@@ -177,7 +193,7 @@ def main():
                 db1 = 20 * np.log10(max(p1_rms / p_ref, 1e-12))
                 db2 = 20 * np.log10(max(p2_rms / p_ref, 1e-12))
 
-
+                # output format: "db0,db1,db2"
                 line = f"{db0},{db1},{db2}\n"
                 sock.sendall(line.encode("utf-8"))
 
